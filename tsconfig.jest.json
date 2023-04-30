@@ -1,0 +1,23 @@
+{
+    "typeAcquisition": {
+        "include": [
+            "jest"
+        ]
+    },
+    "compilerOptions": {
+        "types": [
+            "jest",
+            "node"
+        ]
+    },
+    "extends": "./tsconfig.json",
+    "include": [
+        "*.js",
+        "*.ts*",
+        "**/*.ts*",
+        "**/*.spec.ts*"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}
