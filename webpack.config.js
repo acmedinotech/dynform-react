@@ -4,7 +4,7 @@ const nodeExternals = require('webpack-node-externals');
 module.exports = {
 	entry: './src/index.ts',
 	resolve: {
-		extensions: ['.ts', '.js'],
+		extensions: ['.tsx', '.ts', '.js'],
 	},
 	target: 'es2020', // use require() & use NodeJs CommonJS style
 	externals: [nodeExternals()], // in order to ignore all modules in node_modules folder
@@ -20,9 +20,16 @@ module.exports = {
 	module: {
 		rules: [
 			{
-				test: /\.ts?$/,
+				test: /\.ts$/,
 				loader: 'ts-loader',
 				exclude: /node_modules/,
+			},
+			{
+				test: /\.(j|t)sx$/,
+				exclude: /(node_modules|\.(test|spec))/,
+				use: {
+					loader: 'babel-loader',
+				},
 			},
 		],
 	},
