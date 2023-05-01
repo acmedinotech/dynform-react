@@ -13,37 +13,43 @@ export const MText = (props: MinimalManagedControlProps) => {
 	);
 };
 
-export const MTextarea = (props: MinimalManagedControlProps) => {
+export const MTextarea = ({ value, ...props }: MinimalManagedControlProps) => {
 	return (
 		<ManagedControl {...props}>
-			<textarea />
+			<textarea value={value} />
 		</ManagedControl>
 	);
 };
 
 export const MCheckbox = ({
 	isArray,
+	value,
 	...props
 }: MinimalManagedControlProps) => {
 	return (
 		<ManagedControl isArray={isArray} {...props}>
-			<input type="checkbox" />
+			<input type="checkbox" value={value} />
 		</ManagedControl>
 	);
 };
 
-export const MRadio = (props: MinimalManagedControlProps) => {
+export const MRadio = ({ value, ...props }: MinimalManagedControlProps) => {
 	return (
 		<ManagedControl {...props}>
-			<input type="radio" />
+			<input type="radio" value={value} />
 		</ManagedControl>
 	);
 };
 
-export const MSelect = (props: MinimalManagedControlProps) => {
+export const MSelect = ({
+	value,
+	multiple,
+	children,
+	...props
+}: MinimalManagedControlProps) => {
 	return (
 		<ManagedControl {...props}>
-			<select />
+			<select multiple={multiple}>{children}</select>
 		</ManagedControl>
 	);
 };

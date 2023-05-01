@@ -2,11 +2,12 @@
  * @jest-environment jsdom
  */
 import React from 'react';
-import { act, fireEvent, render, renderHook } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { DynamicForm, ManagedInput, getInitialStateValue } from './DynamicForm';
 import { MCheckbox, MSelect, MText } from './ManagedControls';
 
-describe('frontend/components/DynamicForm', () => {
+describe('DynamicForm', () => {
 	describe('#getInitialStateValue', () => {
 		test('gets scalar', () => {
 			expect(getInitialStateValue('key', {})).toEqual(undefined);
@@ -66,7 +67,6 @@ describe('frontend/components/DynamicForm', () => {
 			// first event is always setting initial state
 			pings.shift();
 			const input = (id = 'ctrl') => {
-				// console.log({ input: id });
 				return control.getByTestId(id);
 			};
 			return {
@@ -80,8 +80,29 @@ describe('frontend/components/DynamicForm', () => {
 					});
 					if (doBlur) fireEvent.blur(input());
 				},
+				/**
+				 * @param optNames the associated label of the value you want to select
+				 */
+				setoptions: (optNames: string[], doBlur = true) => {
+					for (const name of optNames) {
+						userEvent.selectOptions(
+							input(),
+							screen.getByRole('option', {
+								name,
+							})
+						);
+					}
+
+					if (doBlur) fireEvent.blur(input());
+				},
+				setoption: (value: string, doBlur = true) => {
+					fireEvent.change(input(), {
+						target: { value },
+					});
+					// userEvent.selectOptions(input(), value);
+					if (doBlur) fireEvent.blur(input());
+				},
 				toggle: (testid?: string) => {
-					// console.log({ toggle: testid });
 					fireEvent.click(input(testid));
 					fireEvent.blur(input(testid));
 				},
@@ -190,10 +211,31 @@ describe('frontend/components/DynamicForm', () => {
 			]);
 		});
 
-		// @todo testing library doesn't support multiple values for onchange, so currently
-		// incomplete
+		test(`<MSelect />`, () => {
+			const { pings, setoption } = renderFormWithInputsHelper(
+				<MSelect name="managed" data-testid="ctrl">
+					<option value="1" data-testid="opt1" key="1">
+						o1
+					</option>
+					<option value="2" data-testid="opt2" key="2">
+						o2
+					</option>
+					<option value="3" data-testid="opt3" key="3">
+						o3
+					</option>
+				</MSelect>
+			);
+			act(() => {
+				setoption('1');
+			});
+
+			expect(pings).toEqual([
+				['beforeStateChange', {}, { managed: '1' }],
+			]);
+		});
+
 		test(`<MSelect multiple />`, () => {
-			const { pings, input, setvalue } = renderFormWithInputsHelper(
+			const { pings, setoptions } = renderFormWithInputsHelper(
 				<MSelect name="managed" data-testid="ctrl" multiple>
 					<option value="1" data-testid="opt1" key="1">
 						o1
@@ -207,11 +249,11 @@ describe('frontend/components/DynamicForm', () => {
 				</MSelect>
 			);
 			act(() => {
-				setvalue(['1']);
+				setoptions(['o1', 'o2']);
 			});
 
 			expect(pings).toEqual([
-				['beforeStateChange', {}, { managed: ['1'] }],
+				['beforeStateChange', {}, { managed: ['1', '2'] }],
 			]);
 		});
 	});

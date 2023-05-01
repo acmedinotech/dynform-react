@@ -647,13 +647,13 @@ export const ManagedControl = ({
 	isArray,
 	propsInjector,
 	formatValue = (v: any) => v,
+	children,
+	control: origControl,
 	...oprops
 }: MinimalManagedControlProps) => {
 	const { name: nameOverride, disabled, toggleFalse } = oprops;
 	const control =
-		oprops.children instanceof Array
-			? undefined
-			: oprops.children ?? oprops.control;
+		children instanceof Array ? undefined : children ?? origControl;
 	if (!control) {
 		throw new ManagedControlException(
 			`must define 'control' or supply 1 child`
@@ -672,6 +672,7 @@ export const ManagedControl = ({
 	const valHelper = getValueHelper({ ...props, isArray }, val, state);
 
 	return React.cloneElement(control, {
+		...oprops,
 		value: formatValue(val ?? valHelper.initVal),
 		checked: valHelper.isChecked,
 		...(propsInjector?.(ctx, name) ?? {}),
