@@ -32,18 +32,21 @@ describe('forms/validation', () => {
 
 	it('validates and normalizes conforming object', () => {
 		const n = validator(goodObj);
-		expect(n.b).eq('two!');
+		expect(n.b).toEqual('two!');
 	});
 	it('fails validation of non-conforming object', () => {
 		try {
 			validator(badObj);
-		} catch (e) {
-			expect(e.message).eq('Test: 2 validation errors');
-			expect(e.getModel()).eq('Test');
-			expect(e.getErrorMap()).to.contain({
-				a: 'must be number ; expected 2',
-				b: 'must be "two"',
-			});
+		} catch (err) {
+			const e: any = err;
+			expect(e.message).toEqual('Test: 2 validation errors');
+			expect(e.getModel()).toEqual('Test');
+			expect(e.getErrorMap()).toEqual(
+				expect.objectContaining({
+					a: 'must be number ; expected 2',
+					b: 'must be "two"',
+				})
+			);
 		}
 	});
 });
