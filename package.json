@@ -4,8 +4,8 @@
     "access": "public"
   },
   "private": false,
-  "version": "0.0.1",
-  "description": "extensible block-style text parser",
+  "version": "0.0.3",
+  "description": "managed stateful, nested form data with ease and efficiency",
   "author": "kaiser shahid <kaisershahid@gmail.com>",
   "license": "MIT",
   "dependencies": {
@@ -15,8 +15,10 @@
     "typescript": "^5.0.4"
   },
   "main": "dist/dynform-react.js",
+  "types": "dist/index.d.ts",
   "files": [
-    "./dist",
+    "./dist/*.js",
+    "./dist/**/*.js",
     "./README.md"
   ],
   "alias": {
@@ -54,7 +56,7 @@
   },
   "scripts": {
     "test": "npx jest",
-    "release:validate": "yarn test && tsc && echo '✅ release ready to go' && echo git sha: `git rev-parse HEAD` && echo '> run release.sh to tag/publish'",
+    "release:validate": "yarn test && npx webpack --mode production && echo '✅ release ready to go' && echo git sha: `git rev-parse HEAD` && echo '> tag/publish with: yarn release'",
     "release": "node release.js"
   },
   "repository": {
@@ -62,11 +64,8 @@
     "url": "https://github.com/acmedinotech/dynform-react.git"
   },
   "keywords": [
-    "text",
-    "processing",
-    "markdown",
-    "lex",
-    "parse"
+    "react",
+    "forms"
   ],
   "bugs": {
     "url": "https://github.com/acmedinotech/dynform-react/issues"
