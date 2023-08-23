@@ -13,6 +13,8 @@ module.exports = {
 	},
 	output: {
 		path: path.resolve(__dirname, 'dist'),
+		library: 'dynform-react',
+		libraryTarget: 'commonjs2',
 		filename: 'dynform-react.js',
 		chunkFormat: 'module',
 		chunkFilename: '[id].js',
