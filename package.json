@@ -4,7 +4,7 @@
     "access": "public"
   },
   "private": false,
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "managed stateful, nested form data with ease and efficiency",
   "author": "kaiser shahid <kaisershahid@gmail.com>",
   "license": "MIT",
@@ -25,6 +25,12 @@
     "dynform-react": [
       "./src/*"
     ]
+  },
+  "scripts": {
+    "test": "npx jest",
+    "pack": "npm pack",
+    "release:validate": "yarn test && npx webpack --mode production && echo '✅ release ready to go' && echo git sha: `git rev-parse HEAD` && echo '> tag/publish with: yarn release'",
+    "release": "node release.js"
   },
   "devDependencies": {
     "@babel/plugin-proposal-class-properties": "^7.18.6",
@@ -53,11 +59,6 @@
     "webpack": "^5.81.0",
     "webpack-cli": "^5.0.2",
     "webpack-node-externals": "^3.0.0"
-  },
-  "scripts": {
-    "test": "npx jest",
-    "release:validate": "yarn test && npx webpack --mode production && echo '✅ release ready to go' && echo git sha: `git rev-parse HEAD` && echo '> tag/publish with: yarn release'",
-    "release": "node release.js"
   },
   "repository": {
     "type": "git",
