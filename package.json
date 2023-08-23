@@ -4,7 +4,7 @@
     "access": "public"
   },
   "private": false,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "managed stateful, nested form data with ease and efficiency",
   "author": "kaiser shahid <kaisershahid@gmail.com>",
   "license": "MIT",
