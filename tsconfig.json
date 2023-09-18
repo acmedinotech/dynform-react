@@ -1,43 +1,44 @@
 {
-    "compilerOptions": {
-        "rootDir": "./src",
-        "outDir": "./dist",
-        "target": "ES2020",
-        "lib": [
-            "DOM",
-            "DOM.Iterable",
-            "ESNext",
-            "ES2020",
-        ],
-        "module": "ES2020",
-        "moduleResolution": "node",
-        "allowJs": true,
-        "skipLibCheck": true,
-        "strict": true,
-        "forceConsistentCasingInFileNames": true,
-        "allowSyntheticDefaultImports": true,
-        "declaration": true,
-        "noEmit": false,
-        "esModuleInterop": true,
-        "resolveJsonModule": true,
-        "isolatedModules": true,
-        "jsx": "preserve",
-        "baseUrl": ".",
-        "types": [],
-        "paths": {
-            "dynform-react/*": [
-                "./src/*"
-            ]
-        }
-    },
-    "include": [
-        "src/*.js",
-        "src/*.ts*",
-        "src/**/*.ts*",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "target": "ES2020",
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext",
+      "ES2020"
     ],
-    "exclude": [
-        "node_modules/*",
-        "*.spec.*",
-        "**/*.spec.*"
-    ]
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "noEmit": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "types": [],
+    "paths": {
+      "dynform-react/*": [
+        "./src/*"
+      ]
+    },
+    "incremental": true
+  },
+  "include": [
+    "src/*.js",
+    "src/*.ts*",
+    "src/**/*.ts*"
+  ],
+  "exclude": [
+    "node_modules/*",
+    "*.spec.*",
+    "**/*.spec.*"
+  ]
 }

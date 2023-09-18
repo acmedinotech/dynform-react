@@ -3,7 +3,7 @@ import {
 	DynamicFormContext,
 	ManagedControl,
 	MinimalManagedControlProps,
-} from './DynamicForm';
+} from './DynamicFormOld';
 
 export const MText = (props: MinimalManagedControlProps) => {
 	return (
