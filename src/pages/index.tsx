@@ -3,8 +3,17 @@ import { DynamicForm, ENCTYPE_JSON } from '..';
 
 export default function Example() {
 	return (
-		<DynamicForm encType={ENCTYPE_JSON}>
-			<input type="text" defaultValue={'default-text'} />
+		<DynamicForm
+			action="/api/form-submit"
+			encType={ENCTYPE_JSON}
+			onControlValueChange={(name, nv, ov) => {
+				console.log('changed!', name, { new: nv, old: ov });
+			}}
+			afterSubmission={async (resp, data) => {
+				console.log('afterSubmission = ', await resp.json());
+			}}
+		>
+			<input name="text" type="text" defaultValue={'default-text'} />
 			<br />
 			multi:{' '}
 			<input
@@ -13,8 +22,7 @@ export default function Example() {
 				defaultValue={'default-text1'}
 				multiple={true}
 			/>
-			<br />
-			multi:{' '}
+			<br />x multi:{' '}
 			<input
 				name="text-multi"
 				type="text"

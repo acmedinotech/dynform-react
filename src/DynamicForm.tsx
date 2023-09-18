@@ -1,4 +1,10 @@
-import React, { PropsWithChildren, useEffect, useRef } from 'react';
+import React, {
+	PropsWithChildren,
+	createContext,
+	useContext,
+	useEffect,
+	useRef,
+} from 'react';
 
 export type FormData = Record<string, any>;
 
@@ -26,28 +32,46 @@ export const isMultiple = (ctrl: any) => {
 export const isSimulatedControl = (ctrl: any): ctrl is SimulatedControl =>
 	ctrl?.dataset['x-control'] !== undefined;
 
-export const hookBlurs = (
+export type HookControlListener = (
+	evetName: string,
+	ctrl: HTMLElement,
+	e: FocusEvent
+) => void;
+/**
+ * Enhances individual controls in a form to allow DynamicForm to perform
+ * extended lifecycle events:
+ *
+ * - `onBlur`: control's onBlur called first, then propagated to `listener()`
+ * @param form
+ * @param listener
+ * @returns
+ */
+export const hookControlOnHandlers = (
 	form: null | HTMLFormElement,
-	listener: (ctrl: HTMLElement, e: FocusEvent) => void
+	listener: HookControlListener
 ) => {
 	if (!form) {
 		return;
 	}
 
+	// todo: on a hot refresh, previous onblur is also invoked
 	form.querySelectorAll(
 		'input, textarea, select, [' + SIMULATED_CONTROL_ATTRIBUTE + ']'
 	).forEach((ele) => {
 		const ctrl = ele as HTMLInputElement;
 		const oldBlur = ctrl.onblur;
 		ctrl.onblur = (e) => {
-			listener(ctrl, e);
 			oldBlur?.call(ctrl, e);
+			listener('blur', ctrl, e);
 		};
 	});
 };
 
-export const collectAllInputValues = (form: HTMLFormElement) => {
-	const data: FormData = {};
+export const collectAllInputValues = (
+	form: HTMLFormElement,
+	dataRef?: FormData
+) => {
+	const data: FormData = dataRef ?? {};
 	let anonId = 0;
 	// todo: query `[data-x-control]` for control-like objects
 	form.querySelectorAll(
@@ -87,17 +111,59 @@ export const collectAllInputValues = (form: HTMLFormElement) => {
 	return data;
 };
 
+export const areArraysSame = (oval: any[], nval: any[]): boolean => {
+	if (oval.length !== nval.length) {
+		return false;
+	}
+	for (const i in oval) {
+		if (oval[i] !== nval[i]) {
+			return false;
+		}
+	}
+	return true;
+};
+
+export const areObjectsSame = (oval: any, nval: any): boolean => {
+	const okeys = Object.keys(oval);
+	const nkeys = Object.keys(nval);
+	if (okeys.length !== nkeys.length) {
+		return false;
+	}
+
+	const allKeys: Record<string, boolean> = {};
+	for (const okey of okeys) {
+		if (!areValuesSame(oval[okey], nval[okey])) {
+			return false;
+		}
+		allKeys[okey] = true;
+	}
+
+	for (const nkey of nkeys) {
+		if (allKeys[nkey]) {
+			continue;
+		}
+		// if we haven't examined nkey, that means it wasn't even in oval
+		return false;
+	}
+
+	return true;
+};
+
+export const areValuesSame = (oval: any, nval: any): boolean => {
+	// todo: support objects
+	if (oval instanceof Array && nval instanceof Array) {
+		return areArraysSame(oval, nval);
+	} else if (typeof oval === 'object' && typeof nval === 'object') {
+		return areObjectsSame(oval, nval);
+	}
+
+	return oval === nval;
+};
+
 export type DynamicFormSubmitter = (
 	data: FormData,
 	config: DynamicFormProps
 ) => Promise<Response>;
-
-export type DynamicFormProps = {
-	action?: string;
-	method?: string;
-	encType?: string;
-	submitter?: DynamicFormSubmitter;
-} & PropsWithChildren;
 
 export const defaultFormSubmitter: DynamicFormSubmitter = async (
 	data,
@@ -133,6 +199,21 @@ export const defaultFormSubmitter: DynamicFormSubmitter = async (
 	});
 };
 
+export type DynamicFormContextProps = {
+	controlUpdated?: (name: string, newVal: any, oldVal: any) => void;
+};
+
+export const DynamicFormContext = createContext({} as DynamicFormContextProps);
+
+export type DynamicFormProps = {
+	action?: string;
+	method?: string;
+	encType?: string;
+	submitter?: DynamicFormSubmitter;
+	afterSubmission?: (response: Response, data: FormData) => Promise<any>;
+	onControlValueChange?: (name: string, newVal: any, oldVal: any) => void;
+} & PropsWithChildren;
+
 /**
  * An extension to native `<form/>` that is enhanced through:
  *
@@ -142,16 +223,30 @@ export const defaultFormSubmitter: DynamicFormSubmitter = async (
 export const DynamicForm = ({
 	children,
 	submitter = defaultFormSubmitter,
+	afterSubmission,
+	onControlValueChange,
 	...props
 }: DynamicFormProps) => {
+	const ctx = useContext(DynamicFormContext);
 	const ref = useRef<null | HTMLFormElement>(null);
 	const refData = useRef<FormData>({});
 
+	const listener: HookControlListener = (ename, ctrl, e) => {
+		// console.log('listener: ', ename, ctrl, e);
+		if (ename === 'blur') {
+			const key = (ctrl as HTMLFormElement).name;
+			const data = collectAllInputValues(ref.current as HTMLFormElement);
+			if (!areValuesSame(refData.current[key], data[key])) {
+				ctx.controlUpdated?.(key, data[key], refData.current[key]);
+				refData.current[key] = data[key];
+			}
+		}
+	};
+
 	useEffect(() => {
-		hookBlurs(ref.current, (ctrl, e) => {
-			console.log('blurred: ', ctrl, e);
-		});
-		console.log('form.ref = ', ref);
+		collectAllInputValues(ref.current as HTMLFormElement, refData.current);
+		hookControlOnHandlers(ref.current, listener);
+		console.log('-> refData = ', refData.current);
 	});
 
 	return (
@@ -163,7 +258,7 @@ export const DynamicForm = ({
 				const data = collectAllInputValues(e.target as HTMLFormElement);
 				// console.log('submit', data);
 				defaultFormSubmitter(data, props).then((resp) => {
-					console.log(resp);
+					return afterSubmission?.(resp, data);
 				});
 			}}
 		>
