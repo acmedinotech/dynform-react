@@ -98,7 +98,6 @@ export const collectAllInputValues = (
 ) => {
 	const data: FormData = dataRef ?? {};
 	let anonId = 0;
-	// todo: query `[data-x-control]` for control-like objects
 	form.querySelectorAll(
 		'input, textarea, select, [' + DATA_SIMULATED_CONTROL + ']'
 	).forEach((ele) => {
@@ -115,9 +114,6 @@ export const collectAllInputValues = (
 
 		// console.log('control: ', ctrl, ' data: ', data);
 		const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
-		if (key == 'sub_text') {
-			console.log('!! ', { scope, ptr });
-		}
 		if (isMultiple(ctrl)) {
 			if (ctrl instanceof HTMLSelectElement) {
 				ptr[key] = [];
@@ -141,8 +137,9 @@ export const collectAllInputValues = (
 			} else if (ctrl.dataset[KEY_SIMULATED_CONTROL]) {
 				const sid = ctrl.dataset[KEY_SIMULATED_CONTROL];
 				const val = context.getSimulatedControlValue(sid);
+				console.log({ sid, val });
 				if (val) {
-					ptr[key] = val.value;
+					ptr[val.key] = val.value;
 				}
 			} else {
 				ptr[key] = ctrl.value;
@@ -238,6 +235,7 @@ export const defaultFormSubmitter: DynamicFormSubmitter = async (
 };
 
 export type SimulatedControlValue = {
+	key: string;
 	value: any;
 };
 
@@ -261,14 +259,28 @@ export type DynamicFormContextProps = {
 	getSimulatedControlValue: (id: string) => SimulatedControlValue | undefined;
 };
 
+/**
+ * Generates the default form context.
+ *
+ * Currently, simulated control functions are not overrideable.
+ */
 export const makeDynFormContext = (
-	p: Partial<DynamicFormContextProps> = {}
+	p: Partial<
+		Pick<DynamicFormContextProps, 'initialData' | 'controlUpdated'>
+	> = {}
 ): DynamicFormContextProps => {
+	const simulated: Record<string, SimulatedControlValueGetter> = {};
+	let simcount = 0;
+
 	return {
 		initialData: {},
 		controlUpdated: () => {},
-		addSimulatedControl: () => '',
-		getSimulatedControlValue: () => undefined,
+		addSimulatedControl: (getter) => {
+			const id = `${new Date().toISOString()}-${simcount++}`;
+			simulated[id] = getter;
+			return id;
+		},
+		getSimulatedControlValue: (id) => simulated[id]?.(),
 		...p,
 	};
 };

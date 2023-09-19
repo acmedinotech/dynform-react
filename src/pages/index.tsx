@@ -8,9 +8,16 @@ import {
 
 export default function Example() {
 	const formCtx = makeDynFormContext({
-		controlUpdated: (name, nv, ov) => {
-			console.log('changed!', name, { new: nv, old: ov });
+		controlUpdated: (diff) => {
+			console.log('changed!', diff.diffs);
 		},
+	});
+
+	const sid = formCtx.addSimulatedControl(() => {
+		return {
+			key: 'simulated',
+			value: 'simulated!',
+		};
 	});
 	return (
 		<DynamicFormContext.Provider value={formCtx}>
@@ -63,6 +70,7 @@ export default function Example() {
 				<fieldset data-dfr-scope="sub">
 					<input type="text" name="sub_text" />
 				</fieldset>
+				<div data-dfr-control={sid}>placeholder for simulated data</div>
 				<hr />
 				<button type="submit">submit</button>
 			</DynamicForm>
