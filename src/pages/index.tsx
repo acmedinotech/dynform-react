@@ -15,10 +15,13 @@ export default function Example() {
 
 	const sid = formCtx.addSimulatedControl(() => {
 		return {
-			key: 'simulated',
+			name: 'simulated',
 			value: 'simulated!',
 		};
 	});
+
+	const indexedRecords = [{ id: 1 }, { id: 2 }];
+
 	return (
 		<DynamicFormContext.Provider value={formCtx}>
 			<DynamicForm
@@ -68,8 +71,17 @@ export default function Example() {
 				<input type="radio" name="radio" value="r2" />
 				<hr />
 				<fieldset data-dfr-scope="sub">
+					scoped to <code>sub</code>:{' '}
 					<input type="text" name="sub_text" />
 				</fieldset>
+				<hr />
+				{indexedRecords.map((rec, i) => (
+					<fieldset data-dfr-scope={`indexedRecord[${i}]`}>
+						record:{' '}
+						<input type="text" name="id" defaultValue={rec.id} />
+					</fieldset>
+				))}
+				<hr />
 				<div data-dfr-control={sid}>placeholder for simulated data</div>
 				<hr />
 				<button type="submit">submit</button>

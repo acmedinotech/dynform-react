@@ -20,20 +20,9 @@ export const KEY_SIMULATED_CONTROL = 'dfrControl';
 export const DATA_SCOPE = 'data-dfr-scope';
 export const KEY_SCOPE = 'dfrScope';
 
-/**
- * Components marked as a simulated control are expected to have `getValue()` to
- * return the current value.
- */
-export type SimulatedControl = {
-	getValue: () => any;
-};
-
 export const isMultiple = (ctrl: any) => {
 	return !!ctrl.multiple || ctrl.type == 'checkbox';
 };
-
-export const isSimulatedControl = (ctrl: any): ctrl is SimulatedControl =>
-	ctrl?.dataset[KEY_SIMULATED_CONTROL] !== undefined;
 
 export type HookControlListener = (
 	evetName: string,
@@ -62,6 +51,10 @@ export const hookControlOnHandlers = (
 		'input, textarea, select, [' + DATA_SIMULATED_CONTROL + ']'
 	).forEach((ele) => {
 		const ctrl = ele as HTMLInputElement;
+		if (ctrl.type === 'submit' || ctrl.type === 'button') {
+			// ignore buttons
+			return;
+		}
 		const oldBlur = ctrl.onblur;
 		ctrl.onblur = (e) => {
 			oldBlur?.call(ctrl, e);
@@ -71,29 +64,121 @@ export const hookControlOnHandlers = (
 };
 
 /**
- * Expands a `/`-delimited path within an object, where each component refers
- * to a key of the previous component object. If a component doesn't exist, it's
- * created.
+ * An individual component in a `/`-separated path that references a whole object/array,
+ * a specific array index, or a specific map key.
+ *
+ * - `name` -> `{name:'name'}`
+ * - `name[]` -> `{name: 'name', isArray: true}`
+ * - `name[0]` -> `{name: 'name', isArray: true, index: 0}`
+ * - `name[alpha]` -> `{name: 'name', key: 'alpha'}`
+ * - `[alpha]` -> `{name: '', key: 'alpha'}` is a special case that references previous
+ *   resolved component data
+ * - NOT ALLOWED: `[]` and `[index]` (previous resolved component data will always be an
+ *   object, never an array)
+ */
+export type PathComponent = {
+	name: string;
+	isArray?: boolean;
+	index?: number;
+	key?: string;
+};
+
+/**
+ * Convert raw path component to its parts.
+ */
+export const parsePathComponent = (component: string): PathComponent => {
+	const [name, restIndex] = component.split('[');
+	const ret: PathComponent = {
+		name,
+	};
+
+	if (restIndex) {
+		const [rawIndex] = restIndex.split(']');
+		const index = parseInt(rawIndex);
+		if (rawIndex) {
+			if (isNaN(index)) {
+				ret.key = rawIndex;
+			} else {
+				ret.isArray = true;
+				ret.index = index;
+			}
+		} else {
+			ret.isArray = true;
+		}
+	}
+
+	return ret;
+};
+
+/**
+ * Creates/resolves a `/`-delimited path within an object, optionally executes an
+ * insert callback with the resolved object, and returns the resolved object.
  *
  * @param data
  * @param path
  * @return The object pointed to by the leaf component
  */
-export const createAndGetPath = (data: FormData, path: string): FormData => {
+export const insertValueByPath = (
+	data: FormData,
+	path: string,
+	insertFn?: (map: any) => void
+): FormData => {
 	let ptr = data;
 	for (const component of path.split('/')) {
-		if (!ptr[component]) {
-			ptr[component] = {};
+		if (component === '') {
+			break;
 		}
-		ptr = ptr[component];
+
+		// todo: guard against current `name` object being referenced as an array
+		const { name, isArray, index, key } = parsePathComponent(component);
+		let target = ptr;
+		if (name && !ptr[name]) {
+			if (isArray) {
+				if (!ptr[name]) {
+					ptr[name] = [];
+					target = ptr[name];
+				}
+			} else {
+				ptr[name] = {};
+				target = ptr[name];
+			}
+		} else if (name) {
+			target = ptr[name];
+		} else if (isArray) {
+			// unnamed []
+			throw new Error(
+				`unnamed array not allowed. failed parsing '${component}' in '${path}'`
+			);
+		}
+
+		if (isArray) {
+			const obj = {};
+			if (index !== undefined) {
+				// [index]
+				target[index] = obj;
+			} else {
+				// []
+				target.push(obj);
+			}
+			ptr = obj;
+		} else {
+			if (key) {
+				if (!target[key]) {
+					target[key] = {};
+				}
+				ptr = target[key];
+			} else {
+				ptr = target;
+			}
+		}
 	}
+	insertFn?.(ptr);
 	return ptr;
 };
 
 export const collectAllInputValues = (
 	form: HTMLFormElement,
 	context: DynamicFormContextProps,
-	// todo: add matchName
 	{ dataRef }: { dataRef?: FormData } = {}
 ) => {
 	const data: FormData = dataRef ?? {};
@@ -104,59 +189,70 @@ export const collectAllInputValues = (
 		// todo: find data-dfr-name-prefix
 		const ctrl = ele as HTMLInputElement;
 
-		let ptr = data;
+		const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
+		let path = '/' + key;
 		const scope = (ctrl.closest(`[${DATA_SCOPE}]`) as HTMLElement)?.dataset[
 			KEY_SCOPE
 		];
 		if (scope) {
-			ptr = createAndGetPath(ptr, scope);
+			path = scope + path;
 		}
 
-		// console.log('control: ', ctrl, ' data: ', data);
-		const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
-		if (isMultiple(ctrl)) {
-			if (ctrl instanceof HTMLSelectElement) {
-				ptr[key] = [];
-				for (const opt of ctrl.selectedOptions) {
-					ptr[key].push(opt.value);
-				}
-			} else {
-				if (ctrl.type === 'checkbox' && !ctrl.checked) {
-					return;
-				}
-
-				if (ptr[key] === undefined) {
-					ptr[key] = [ctrl.value];
+		insertValueByPath(data, path, (ptr: any) => {
+			if (isMultiple(ctrl)) {
+				if (ctrl instanceof HTMLSelectElement) {
+					ptr[key] = [];
+					for (const opt of ctrl.selectedOptions) {
+						ptr[key].push(opt.value);
+					}
 				} else {
-					ptr[key].push(ctrl.value);
-				}
-			}
-		} else {
-			if (ctrl.type === 'radio' && !ctrl.checked) {
-				return;
-			} else if (ctrl.dataset[KEY_SIMULATED_CONTROL]) {
-				const sid = ctrl.dataset[KEY_SIMULATED_CONTROL];
-				const val = context.getSimulatedControlValue(sid);
-				console.log({ sid, val });
-				if (val) {
-					ptr[val.key] = val.value;
+					if (ctrl.type === 'checkbox' && !ctrl.checked) {
+						return;
+					}
+
+					if (ptr[key] === undefined) {
+						ptr[key] = [ctrl.value];
+					} else {
+						ptr[key].push(ctrl.value);
+					}
 				}
 			} else {
-				ptr[key] = ctrl.value;
+				if (ctrl.type === 'radio' && !ctrl.checked) {
+					return;
+				} else if (ctrl.dataset[KEY_SIMULATED_CONTROL]) {
+					const sid = ctrl.dataset[KEY_SIMULATED_CONTROL];
+					const val = context.getSimulatedControlValue(sid);
+					console.log({ sid, val });
+					if (val) {
+						ptr[val.name] = val.value;
+					}
+				} else {
+					ptr[key] = ctrl.value;
+				}
 			}
-		}
+		});
 	});
 
 	return data;
 };
 
+/**
+ * @todo add more granular info on which indices fail
+ */
 export const areArraysSame = (oval: any[], nval: any[]): boolean => {
 	if (oval.length !== nval.length) {
 		return false;
 	}
 	for (const i in oval) {
-		if (oval[i] !== nval[i]) {
-			return false;
+		if (typeof oval[i] === 'object' && typeof nval[i] === 'object') {
+			const _diff = computeDiff(oval[i], nval[i]);
+			if (_diff.hasDiff) {
+				return false;
+			}
+		} else {
+			if (oval[i] !== nval[i]) {
+				return false;
+			}
 		}
 	}
 	return true;
@@ -234,8 +330,12 @@ export const defaultFormSubmitter: DynamicFormSubmitter = async (
 	});
 };
 
+/**
+ * Non-standard input components can register themselves as simulated controls--
+ * they register a getter that returns an object that loosely mimics an HTMLInputElement.
+ */
 export type SimulatedControlValue = {
-	key: string;
+	name: string;
 	value: any;
 };
 
@@ -252,6 +352,9 @@ export type DiffResults = {
 	diffs: Record<string, [any, any]>;
 };
 
+/**
+ * Enables component tree access to the dynamic form and its related lifecycle events.
+ */
 export type DynamicFormContextProps = {
 	initialData: FormData;
 	refData: React.Ref<FormData>;
@@ -320,8 +423,8 @@ export const DynamicForm = ({
 
 	const listener: HookControlListener = (ename, ctrl, e) => {
 		// console.log('listener: ', ename, ctrl, e);
+		// todo: ensure upda
 		if (ename === 'blur') {
-			const key = (ctrl as HTMLFormElement).name;
 			const data = collectAllInputValues(
 				ref.current as HTMLFormElement,
 				ctx
