@@ -15,7 +15,10 @@ export const ENCTYPE_JSON = 'application/json';
 /**
  * Allows non-standard component to act as a control when form is serialized.
  */
-export const SIMULATED_CONTROL_ATTRIBUTE = 'data-x-control';
+export const DATA_SIMULATED_CONTROL = 'data-dfr-control';
+export const KEY_SIMULATED_CONTROL = 'dfrControl';
+export const DATA_SCOPE = 'data-dfr-scope';
+export const KEY_SCOPE = 'dfrScope';
 
 /**
  * Components marked as a simulated control are expected to have `getValue()` to
@@ -30,7 +33,7 @@ export const isMultiple = (ctrl: any) => {
 };
 
 export const isSimulatedControl = (ctrl: any): ctrl is SimulatedControl =>
-	ctrl?.dataset['x-control'] !== undefined;
+	ctrl?.dataset[KEY_SIMULATED_CONTROL] !== undefined;
 
 export type HookControlListener = (
 	evetName: string,
@@ -56,7 +59,7 @@ export const hookControlOnHandlers = (
 
 	// todo: on a hot refresh, previous onblur is also invoked
 	form.querySelectorAll(
-		'input, textarea, select, [' + SIMULATED_CONTROL_ATTRIBUTE + ']'
+		'input, textarea, select, [' + DATA_SIMULATED_CONTROL + ']'
 	).forEach((ele) => {
 		const ctrl = ele as HTMLInputElement;
 		const oldBlur = ctrl.onblur;
@@ -67,44 +70,83 @@ export const hookControlOnHandlers = (
 	});
 };
 
+/**
+ * Expands a `/`-delimited path within an object, where each component refers
+ * to a key of the previous component object. If a component doesn't exist, it's
+ * created.
+ *
+ * @param data
+ * @param path
+ * @return The object pointed to by the leaf component
+ */
+export const createAndGetPath = (data: FormData, path: string): FormData => {
+	let ptr = data;
+	for (const component of path.split('/')) {
+		if (!ptr[component]) {
+			ptr[component] = {};
+		}
+		ptr = ptr[component];
+	}
+	return ptr;
+};
+
 export const collectAllInputValues = (
 	form: HTMLFormElement,
-	dataRef?: FormData
+	context: DynamicFormContextProps,
+	// todo: add matchName
+	{ dataRef }: { dataRef?: FormData } = {}
 ) => {
 	const data: FormData = dataRef ?? {};
 	let anonId = 0;
 	// todo: query `[data-x-control]` for control-like objects
 	form.querySelectorAll(
-		'input, textarea, select, [' + SIMULATED_CONTROL_ATTRIBUTE + ']'
+		'input, textarea, select, [' + DATA_SIMULATED_CONTROL + ']'
 	).forEach((ele) => {
+		// todo: find data-dfr-name-prefix
 		const ctrl = ele as HTMLInputElement;
+
+		let ptr = data;
+		const scope = (ctrl.closest(`[${DATA_SCOPE}]`) as HTMLElement)?.dataset[
+			KEY_SCOPE
+		];
+		if (scope) {
+			ptr = createAndGetPath(ptr, scope);
+		}
+
 		// console.log('control: ', ctrl, ' data: ', data);
 		const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
+		if (key == 'sub_text') {
+			console.log('!! ', { scope, ptr });
+		}
 		if (isMultiple(ctrl)) {
 			if (ctrl instanceof HTMLSelectElement) {
-				data[key] = [];
+				ptr[key] = [];
 				for (const opt of ctrl.selectedOptions) {
-					data[key].push(opt.value);
+					ptr[key].push(opt.value);
 				}
 			} else {
 				if (ctrl.type === 'checkbox' && !ctrl.checked) {
 					return;
 				}
 
-				if (data[key] === undefined) {
-					data[key] = [ctrl.value];
+				if (ptr[key] === undefined) {
+					ptr[key] = [ctrl.value];
 				} else {
-					data[key].push(ctrl.value);
+					ptr[key].push(ctrl.value);
 				}
 			}
 		} else {
 			if (ctrl.type === 'radio' && !ctrl.checked) {
 				return;
-			} else if (isSimulatedControl(ctrl)) {
-				data[key] = ctrl.getValue();
+			} else if (ctrl.dataset[KEY_SIMULATED_CONTROL]) {
+				const sid = ctrl.dataset[KEY_SIMULATED_CONTROL];
+				const val = context.getSimulatedControlValue(sid);
+				if (val) {
+					ptr[key] = val.value;
+				}
+			} else {
+				ptr[key] = ctrl.value;
 			}
-
-			data[key] = ctrl.value;
 		}
 	});
 
@@ -123,41 +165,37 @@ export const areArraysSame = (oval: any[], nval: any[]): boolean => {
 	return true;
 };
 
-export const areObjectsSame = (oval: any, nval: any): boolean => {
+export const computeDiff = (
+	oval: FormData,
+	nval: FormData,
+	curpath = '',
+	diff?: DiffResults
+): DiffResults => {
+	const prefix = curpath ? curpath + '/' : '';
+	const curdiff = diff ?? { hasDiff: false, diffs: {} };
+
+	const examined: Record<string, boolean> = {};
 	const okeys = Object.keys(oval);
 	const nkeys = Object.keys(nval);
-	if (okeys.length !== nkeys.length) {
-		return false;
-	}
 
-	const allKeys: Record<string, boolean> = {};
 	for (const okey of okeys) {
-		if (!areValuesSame(oval[okey], nval[okey])) {
-			return false;
+		examined[okey] = true;
+		const ov = oval[okey];
+		const nv = nval[okey];
+		if (ov instanceof Array && nv instanceof Array) {
+			if (!areArraysSame(ov, nv)) {
+				curdiff.hasDiff = true;
+				curdiff.diffs[prefix + okey] = [ov, nv];
+			}
+		} else if (typeof ov === 'object' && typeof nv === 'object') {
+			computeDiff(ov, nv, prefix + okey, curdiff);
+		} else if (ov !== nv) {
+			curdiff.hasDiff = true;
+			curdiff.diffs[prefix + okey] = [ov, nv];
 		}
-		allKeys[okey] = true;
 	}
 
-	for (const nkey of nkeys) {
-		if (allKeys[nkey]) {
-			continue;
-		}
-		// if we haven't examined nkey, that means it wasn't even in oval
-		return false;
-	}
-
-	return true;
-};
-
-export const areValuesSame = (oval: any, nval: any): boolean => {
-	// todo: support objects
-	if (oval instanceof Array && nval instanceof Array) {
-		return areArraysSame(oval, nval);
-	} else if (typeof oval === 'object' && typeof nval === 'object') {
-		return areObjectsSame(oval, nval);
-	}
-
-	return oval === nval;
+	return curdiff;
 };
 
 export type DynamicFormSubmitter = (
@@ -199,17 +237,49 @@ export const defaultFormSubmitter: DynamicFormSubmitter = async (
 	});
 };
 
-export type DynamicFormContextProps = {
-	controlUpdated?: (name: string, newVal: any, oldVal: any) => void;
+export type SimulatedControlValue = {
+	value: any;
 };
 
-export const DynamicFormContext = createContext({} as DynamicFormContextProps);
+export type SimulatedControlValueGetter = () =>
+	| SimulatedControlValue
+	| undefined;
+
+/**
+ * Reflects changes in form data. Each key in `diff` is `/`-separated to indicate nesting,
+ * and each value is in the form `[oldValue, newValue]`.
+ */
+export type DiffResults = {
+	hasDiff: boolean;
+	diffs: Record<string, [any, any]>;
+};
+
+export type DynamicFormContextProps = {
+	initialData: FormData;
+	controlUpdated: (diff: DiffResults) => void;
+	addSimulatedControl: (getter: SimulatedControlValueGetter) => string;
+	getSimulatedControlValue: (id: string) => SimulatedControlValue | undefined;
+};
+
+export const makeDynFormContext = (
+	p: Partial<DynamicFormContextProps> = {}
+): DynamicFormContextProps => {
+	return {
+		initialData: {},
+		controlUpdated: () => {},
+		addSimulatedControl: () => '',
+		getSimulatedControlValue: () => undefined,
+		...p,
+	};
+};
+
+export const DynamicFormContext = createContext(makeDynFormContext());
 
 export type DynamicFormProps = {
 	action?: string;
 	method?: string;
 	encType?: string;
-	submitter?: DynamicFormSubmitter;
+	onSubmit?: DynamicFormSubmitter;
 	afterSubmission?: (response: Response, data: FormData) => Promise<any>;
 	onControlValueChange?: (name: string, newVal: any, oldVal: any) => void;
 } & PropsWithChildren;
@@ -222,7 +292,7 @@ export type DynamicFormProps = {
  */
 export const DynamicForm = ({
 	children,
-	submitter = defaultFormSubmitter,
+	onSubmit = defaultFormSubmitter,
 	afterSubmission,
 	onControlValueChange,
 	...props
@@ -235,16 +305,29 @@ export const DynamicForm = ({
 		// console.log('listener: ', ename, ctrl, e);
 		if (ename === 'blur') {
 			const key = (ctrl as HTMLFormElement).name;
-			const data = collectAllInputValues(ref.current as HTMLFormElement);
-			if (!areValuesSame(refData.current[key], data[key])) {
-				ctx.controlUpdated?.(key, data[key], refData.current[key]);
-				refData.current[key] = data[key];
+			console.log(
+				'-> blur ',
+				ctrl,
+				' ;; scope = ',
+				ctrl.closest(`[${DATA_SCOPE}]`)
+			);
+			const data = collectAllInputValues(
+				ref.current as HTMLFormElement,
+				ctx
+			);
+
+			const diff = computeDiff(refData.current, data);
+			if (diff.hasDiff) {
+				ctx.controlUpdated?.(diff);
+				Object.assign(refData.current, data);
 			}
 		}
 	};
 
 	useEffect(() => {
-		collectAllInputValues(ref.current as HTMLFormElement, refData.current);
+		collectAllInputValues(ref.current as HTMLFormElement, ctx, {
+			dataRef: refData.current,
+		});
 		hookControlOnHandlers(ref.current, listener);
 		console.log('-> refData = ', refData.current);
 	});
@@ -255,7 +338,10 @@ export const DynamicForm = ({
 			ref={ref}
 			onSubmit={(e) => {
 				e.preventDefault();
-				const data = collectAllInputValues(e.target as HTMLFormElement);
+				const data = collectAllInputValues(
+					e.target as HTMLFormElement,
+					ctx
+				);
 				// console.log('submit', data);
 				defaultFormSubmitter(data, props).then((resp) => {
 					return afterSubmission?.(resp, data);
