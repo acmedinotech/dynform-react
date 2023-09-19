@@ -254,6 +254,7 @@ export type DiffResults = {
 
 export type DynamicFormContextProps = {
 	initialData: FormData;
+	refData: React.Ref<FormData>;
 	controlUpdated: (diff: DiffResults) => void;
 	addSimulatedControl: (getter: SimulatedControlValueGetter) => string;
 	getSimulatedControlValue: (id: string) => SimulatedControlValue | undefined;
@@ -274,6 +275,7 @@ export const makeDynFormContext = (
 
 	return {
 		initialData: {},
+		refData: { current: {} },
 		controlUpdated: () => {},
 		addSimulatedControl: (getter) => {
 			const id = `${new Date().toISOString()}-${simcount++}`;
@@ -312,17 +314,14 @@ export const DynamicForm = ({
 	const ctx = useContext(DynamicFormContext);
 	const ref = useRef<null | HTMLFormElement>(null);
 	const refData = useRef<FormData>({});
+	// even though ctx is created above, dynamicForm is charge of data state,
+	// so override context value
+	ctx.refData = refData;
 
 	const listener: HookControlListener = (ename, ctrl, e) => {
 		// console.log('listener: ', ename, ctrl, e);
 		if (ename === 'blur') {
 			const key = (ctrl as HTMLFormElement).name;
-			console.log(
-				'-> blur ',
-				ctrl,
-				' ;; scope = ',
-				ctrl.closest(`[${DATA_SCOPE}]`)
-			);
 			const data = collectAllInputValues(
 				ref.current as HTMLFormElement,
 				ctx
@@ -341,7 +340,7 @@ export const DynamicForm = ({
 			dataRef: refData.current,
 		});
 		hookControlOnHandlers(ref.current, listener);
-		console.log('-> refData = ', refData.current);
+		console.log('ℹ️ refData = ', refData.current);
 	});
 
 	return (
