@@ -13,10 +13,10 @@ export default function Example() {
 		},
 	});
 
-	const sid = formCtx.addSimulatedControl(() => {
+	const sid = formCtx.addSyntheticControl(() => {
 		return {
-			name: 'simulated',
-			value: 'simulated!',
+			name: 'synthetic',
+			value: 'synthetic!',
 		};
 	});
 
@@ -82,7 +82,7 @@ export default function Example() {
 					</fieldset>
 				))}
 				<hr />
-				<div data-dfr-control={sid}>placeholder for simulated data</div>
+				<div data-dfr-control={sid}>placeholder for synthetic data</div>
 				<hr />
 				<button type="submit">submit</button>
 			</DynamicForm>

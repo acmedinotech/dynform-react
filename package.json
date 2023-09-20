@@ -4,8 +4,8 @@
     "access": "public"
   },
   "private": false,
-  "version": "0.0.7",
-  "description": "managed stateful, nested form data with ease and efficiency",
+  "version": "0.1.0",
+  "description": "easy-to-use library for constructing complex data structures from plain old html form controls and data annotations",
   "author": "kaiser shahid <kaisershahid@gmail.com>",
   "license": "MIT",
   "dependencies": {

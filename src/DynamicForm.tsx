@@ -111,8 +111,9 @@ export const parsePathComponent = (component: string): PathComponent => {
 };
 
 /**
- * Creates/resolves a `/`-delimited path within an object, optionally executes an
+ * Resolves a `/`-delimited path within an object, optionally executes an
  * insert callback with the resolved object, and returns the resolved object.
+ * This allows for out-of-order, iterative graph creation,
  *
  * @param data
  * @param path
@@ -176,6 +177,12 @@ export const insertValueByPath = (
 	return ptr;
 };
 
+/**
+ * Iterates over all native and synthetic form controls and constructs a graph
+ * of the current state of data. Container components can use `data-dfr-scope`
+ * to define a deep leaf in the structure where nested control values will be
+ * saved to.
+ */
 export const collectAllInputValues = (
 	form: HTMLFormElement,
 	context: DynamicFormContextProps,
@@ -186,7 +193,6 @@ export const collectAllInputValues = (
 	form.querySelectorAll(
 		'input, textarea, select, [' + DATA_SIMULATED_CONTROL + ']'
 	).forEach((ele) => {
-		// todo: find data-dfr-name-prefix
 		const ctrl = ele as HTMLInputElement;
 
 		const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
@@ -210,6 +216,7 @@ export const collectAllInputValues = (
 						return;
 					}
 
+					// either create or append to key
 					if (ptr[key] === undefined) {
 						ptr[key] = [ctrl.value];
 					} else {
@@ -221,8 +228,8 @@ export const collectAllInputValues = (
 					return;
 				} else if (ctrl.dataset[KEY_SIMULATED_CONTROL]) {
 					const sid = ctrl.dataset[KEY_SIMULATED_CONTROL];
-					const val = context.getSimulatedControlValue(sid);
-					console.log({ sid, val });
+					const val = context.getSyntheticControlValue(sid);
+					console.log({ KEY_SIMULATED_CONTROL, sid, val });
 					if (val) {
 						ptr[val.name] = val.value;
 					}
@@ -236,28 +243,37 @@ export const collectAllInputValues = (
 	return data;
 };
 
-/**
- * @todo add more granular info on which indices fail
- */
-export const areArraysSame = (oval: any[], nval: any[]): boolean => {
-	if (oval.length !== nval.length) {
-		return false;
-	}
-	for (const i in oval) {
+export const computeArrayDiff = (oval: any[], nval: any[]): DiffResults => {
+	const mydiff: DiffResults = {
+		hasDiff: false,
+		diffs: {},
+	};
+
+	const max = oval.length > nval.length ? oval.length : nval.length;
+	let errs = 0;
+	for (let i = 0; i < max; i++) {
 		if (typeof oval[i] === 'object' && typeof nval[i] === 'object') {
 			const _diff = computeDiff(oval[i], nval[i]);
 			if (_diff.hasDiff) {
-				return false;
+				mydiff.diffs[`[${i}]`] = [oval[i], nval[i]];
+				errs++;
 			}
 		} else {
 			if (oval[i] !== nval[i]) {
-				return false;
+				mydiff.diffs[`[${i}]`] = [oval[i], nval[i]];
+				errs++;
 			}
 		}
 	}
-	return true;
+
+	mydiff.hasDiff = !!errs;
+	return mydiff;
 };
 
+/**
+ * Does a deep traverse between two objects to compute changes. Each diff
+ * is registered as path.
+ */
 export const computeDiff = (
 	oval: FormData,
 	nval: FormData,
@@ -276,9 +292,12 @@ export const computeDiff = (
 		const ov = oval[okey];
 		const nv = nval[okey];
 		if (ov instanceof Array && nv instanceof Array) {
-			if (!areArraysSame(ov, nv)) {
+			const arrdiff = computeArrayDiff(ov, nv);
+			if (arrdiff.hasDiff) {
 				curdiff.hasDiff = true;
-				curdiff.diffs[prefix + okey] = [ov, nv];
+				for (const index in arrdiff.diffs) {
+					curdiff.diffs[prefix + okey + index] = arrdiff.diffs[index];
+				}
 			}
 		} else if (typeof ov === 'object' && typeof nv === 'object') {
 			computeDiff(ov, nv, prefix + okey, curdiff);
@@ -296,6 +315,10 @@ export type DynamicFormSubmitter = (
 	config: DynamicFormProps
 ) => Promise<Response>;
 
+/**
+ * Submits the form based on action, method, and content encoding type.
+ * Handles standard querystring/mutipart and JSON.
+ */
 export const defaultFormSubmitter: DynamicFormSubmitter = async (
 	data,
 	{ action = '', method = 'post', encType = ENCTYPE_MULTIPART }
@@ -331,16 +354,16 @@ export const defaultFormSubmitter: DynamicFormSubmitter = async (
 };
 
 /**
- * Non-standard input components can register themselves as simulated controls--
+ * Non-standard input components can register themselves as synthetic controls--
  * they register a getter that returns an object that loosely mimics an HTMLInputElement.
  */
-export type SimulatedControlValue = {
+export type SyntheticControlValue = {
 	name: string;
 	value: any;
 };
 
-export type SimulatedControlValueGetter = () =>
-	| SimulatedControlValue
+export type SyntheticControlValueGetter = () =>
+	| SyntheticControlValue
 	| undefined;
 
 /**
@@ -353,39 +376,44 @@ export type DiffResults = {
 };
 
 /**
- * Enables component tree access to the dynamic form and its related lifecycle events.
+ * Enables component tree to access the dynamic form to access/manipulate data.
  */
 export type DynamicFormContextProps = {
+	/** Reset state of form data. */
 	initialData: FormData;
+	/** Live state of form data. */
 	refData: React.Ref<FormData>;
+	/** A listener for detected changes. */
 	controlUpdated: (diff: DiffResults) => void;
-	addSimulatedControl: (getter: SimulatedControlValueGetter) => string;
-	getSimulatedControlValue: (id: string) => SimulatedControlValue | undefined;
+	/** Register a synthetic control */
+	addSyntheticControl: (getter: SyntheticControlValueGetter) => string;
+	/** Get current value of a synthetic control. */
+	getSyntheticControlValue: (id: string) => SyntheticControlValue | undefined;
 };
 
 /**
  * Generates the default form context.
  *
- * Currently, simulated control functions are not overrideable.
+ * Currently, synthetic control functions are not overrideable.
  */
 export const makeDynFormContext = (
 	p: Partial<
 		Pick<DynamicFormContextProps, 'initialData' | 'controlUpdated'>
 	> = {}
 ): DynamicFormContextProps => {
-	const simulated: Record<string, SimulatedControlValueGetter> = {};
+	const synthetic: Record<string, SyntheticControlValueGetter> = {};
 	let simcount = 0;
 
 	return {
 		initialData: {},
 		refData: { current: {} },
 		controlUpdated: () => {},
-		addSimulatedControl: (getter) => {
+		addSyntheticControl: (getter) => {
 			const id = `${new Date().toISOString()}-${simcount++}`;
-			simulated[id] = getter;
+			synthetic[id] = getter;
 			return id;
 		},
-		getSimulatedControlValue: (id) => simulated[id]?.(),
+		getSyntheticControlValue: (id) => synthetic[id]?.(),
 		...p,
 	};
 };
@@ -398,32 +426,30 @@ export type DynamicFormProps = {
 	encType?: string;
 	onSubmit?: DynamicFormSubmitter;
 	afterSubmission?: (response: Response, data: FormData) => Promise<any>;
-	onControlValueChange?: (name: string, newVal: any, oldVal: any) => void;
 } & PropsWithChildren;
 
 /**
  * An extension to native `<form/>` that is enhanced through:
  *
+ * - self-reflection on form controls to construct arbitrarily complex data states
  * - easy support of JSON submissions
  * - notification of control changes through onBlur() detection and state comparison
+ *
  */
 export const DynamicForm = ({
 	children,
 	onSubmit = defaultFormSubmitter,
 	afterSubmission,
-	onControlValueChange,
 	...props
 }: DynamicFormProps) => {
 	const ctx = useContext(DynamicFormContext);
 	const ref = useRef<null | HTMLFormElement>(null);
 	const refData = useRef<FormData>({});
-	// even though ctx is created above, dynamicForm is charge of data state,
-	// so override context value
+
+	// even though ctx is created above, dynamicForm is charge of data state, so override context value here
 	ctx.refData = refData;
 
 	const listener: HookControlListener = (ename, ctrl, e) => {
-		// console.log('listener: ', ename, ctrl, e);
-		// todo: ensure upda
 		if (ename === 'blur') {
 			const data = collectAllInputValues(
 				ref.current as HTMLFormElement,
