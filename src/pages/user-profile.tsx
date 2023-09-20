@@ -7,7 +7,11 @@ import {
 } from '..';
 
 export default function UserProfile() {
-	const formCtx = makeDynFormContext({});
+	const formCtx = makeDynFormContext({
+		initialData: {
+			firstName: 'Jep',
+		},
+	});
 	return (
 		<DynamicFormContext.Provider value={formCtx}>
 			<DynamicForm
@@ -17,7 +21,12 @@ export default function UserProfile() {
 					console.log('afterSubmission = ', await resp.json());
 				}}
 			>
-				<b>first name</b>: <input type="text" name="firstName" />
+				<b>first name</b>:{' '}
+				<input
+					type="text"
+					name="firstName"
+					defaultValue={formCtx.initialData.firstName}
+				/>
 				<br />
 				<b>last name</b>: <input type="text" name="lastName" />
 				<br />
@@ -31,6 +40,7 @@ export default function UserProfile() {
 					<br />
 				</fieldset>
 				<button type="submit">submit</button>
+				<button type="reset">reset</button>
 			</DynamicForm>
 		</DynamicFormContext.Provider>
 	);

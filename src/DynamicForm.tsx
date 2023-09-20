@@ -15,8 +15,8 @@ export const ENCTYPE_JSON = 'application/json';
 /**
  * Allows non-standard component to act as a control when form is serialized.
  */
-export const DATA_SIMULATED_CONTROL = 'data-dfr-control';
-export const KEY_SIMULATED_CONTROL = 'dfrControl';
+export const DATA_SYNTHETIC_CONTROL = 'data-dfr-synthetic-control';
+export const KEY_SYNTHETIC_CONTROL = 'dfrSyntheticControl';
 export const DATA_SCOPE = 'data-dfr-scope';
 export const KEY_SCOPE = 'dfrScope';
 
@@ -48,7 +48,7 @@ export const hookControlOnHandlers = (
 
 	// todo: on a hot refresh, previous onblur is also invoked
 	form.querySelectorAll(
-		'input, textarea, select, [' + DATA_SIMULATED_CONTROL + ']'
+		'input, textarea, select, [' + DATA_SYNTHETIC_CONTROL + ']'
 	).forEach((ele) => {
 		const ctrl = ele as HTMLInputElement;
 		if (ctrl.type === 'submit' || ctrl.type === 'button') {
@@ -191,7 +191,7 @@ export const collectAllInputValues = (
 	const data: FormData = dataRef ?? {};
 	let anonId = 0;
 	form.querySelectorAll(
-		'input, textarea, select, [' + DATA_SIMULATED_CONTROL + ']'
+		'input, textarea, select, [' + DATA_SYNTHETIC_CONTROL + ']'
 	).forEach((ele) => {
 		const ctrl = ele as HTMLInputElement;
 
@@ -226,10 +226,14 @@ export const collectAllInputValues = (
 			} else {
 				if (ctrl.type === 'radio' && !ctrl.checked) {
 					return;
-				} else if (ctrl.dataset[KEY_SIMULATED_CONTROL]) {
-					const sid = ctrl.dataset[KEY_SIMULATED_CONTROL];
+				} else if (ctrl.dataset[KEY_SYNTHETIC_CONTROL]) {
+					const sid = ctrl.dataset[KEY_SYNTHETIC_CONTROL];
 					const val = context.getSyntheticControlValue(sid);
-					console.log({ KEY_SIMULATED_CONTROL, sid, val });
+					console.log({
+						KEY_SIMULATED_CONTROL: KEY_SYNTHETIC_CONTROL,
+						sid,
+						val,
+					});
 					if (val) {
 						ptr[val.name] = val.value;
 					}
