@@ -1,10 +1,6 @@
-import React, {
-	PropsWithChildren,
-	createContext,
-	useContext,
-	useEffect,
-	useRef,
-} from 'react';
+import EventEmitter from 'events';
+import type { PropsWithChildren } from 'react';
+import React, { createContext, useContext, useEffect, useRef } from 'react';
 
 export type FormData = Record<string, any>;
 
@@ -24,11 +20,14 @@ export const isMultiple = (ctrl: any) => {
 	return !!ctrl.multiple || ctrl.type == 'checkbox';
 };
 
+export const cloneObj = (obj: any) => JSON.parse(JSON.stringify(obj));
+
 export type HookControlListener = (
 	evetName: string,
 	ctrl: HTMLElement,
 	e: FocusEvent
 ) => void;
+
 /**
  * Enhances individual controls in a form to allow DynamicForm to perform
  * extended lifecycle events:
@@ -39,7 +38,7 @@ export type HookControlListener = (
  * @returns
  */
 export const hookControlOnHandlers = (
-	form: null | HTMLFormElement,
+	form: null | HTMLElement,
 	listener: HookControlListener
 ) => {
 	if (!form) {
@@ -51,10 +50,17 @@ export const hookControlOnHandlers = (
 		'input, textarea, select, [' + DATA_SYNTHETIC_CONTROL + ']'
 	).forEach((ele) => {
 		const ctrl = ele as HTMLInputElement;
-		if (ctrl.type === 'submit' || ctrl.type === 'button') {
-			// ignore buttons
+		if (
+			ctrl.type === 'submit' ||
+			ctrl.type === 'button' ||
+			ctrl.type === 'hidden'
+		) {
+			return;
+		} else if (ctrl.dataset['dfrHook']) {
 			return;
 		}
+
+		ctrl.dataset['dfrHook'] = '1';
 		const oldBlur = ctrl.onblur;
 		ctrl.onblur = (e) => {
 			oldBlur?.call(ctrl, e);
@@ -182,67 +188,78 @@ export const insertValueByPath = (
  * of the current state of data. Container components can use `data-dfr-scope`
  * to define a deep leaf in the structure where nested control values will be
  * saved to.
+ * @param rootEle A control container (e.g. `<form/>`)
+ * @param context The context of the form calling this
+ * @param options `collectSubForms` signals that this call should also look at
+ * all registered subForms and collect input values into the data set before returning
  */
 export const collectAllInputValues = (
-	form: HTMLFormElement,
+	rootEle: HTMLElement,
 	context: DynamicFormContextProps,
-	{ dataRef }: { dataRef?: FormData } = {}
+	options: { dataRef?: FormData; collectSubforms?: boolean } = {}
 ) => {
+	const { dataRef, collectSubforms } = options;
 	const data: FormData = dataRef ?? {};
 	let anonId = 0;
-	form.querySelectorAll(
-		'input, textarea, select, [' + DATA_SYNTHETIC_CONTROL + ']'
-	).forEach((ele) => {
-		const ctrl = ele as HTMLInputElement;
+	rootEle
+		.querySelectorAll(
+			'input, textarea, select, [' + DATA_SYNTHETIC_CONTROL + ']'
+		)
+		.forEach((ele) => {
+			const ctrl = ele as HTMLInputElement;
 
-		const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
-		let path = '/' + key;
-		const scope = (ctrl.closest(`[${DATA_SCOPE}]`) as HTMLElement)?.dataset[
-			KEY_SCOPE
-		];
-		if (scope) {
-			path = scope + path;
-		}
+			const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
+			// let path = '';
+			const path =
+				(ctrl.closest(`[${DATA_SCOPE}]`) as HTMLElement)?.dataset[
+					KEY_SCOPE
+				] ?? '';
 
-		insertValueByPath(data, path, (ptr: any) => {
-			if (isMultiple(ctrl)) {
-				if (ctrl instanceof HTMLSelectElement) {
-					ptr[key] = [];
-					for (const opt of ctrl.selectedOptions) {
-						ptr[key].push(opt.value);
-					}
-				} else {
-					if (ctrl.type === 'checkbox' && !ctrl.checked) {
-						return;
-					}
-
-					// either create or append to key
-					if (ptr[key] === undefined) {
-						ptr[key] = [ctrl.value];
+			insertValueByPath(data, path, (ptr: any) => {
+				if (isMultiple(ctrl)) {
+					if (ctrl instanceof HTMLSelectElement) {
+						ptr[key] = [];
+						for (const opt of ctrl.selectedOptions) {
+							ptr[key].push(opt.value);
+						}
 					} else {
-						ptr[key].push(ctrl.value);
-					}
-				}
-			} else {
-				if (ctrl.type === 'radio' && !ctrl.checked) {
-					return;
-				} else if (ctrl.dataset[KEY_SYNTHETIC_CONTROL]) {
-					const sid = ctrl.dataset[KEY_SYNTHETIC_CONTROL];
-					const val = context.getSyntheticControlValue(sid);
-					console.log({
-						KEY_SIMULATED_CONTROL: KEY_SYNTHETIC_CONTROL,
-						sid,
-						val,
-					});
-					if (val) {
-						ptr[val.name] = val.value;
+						if (ctrl.type === 'checkbox' && !ctrl.checked) {
+							return;
+						}
+
+						// either create or append to key
+						if (ptr[key] === undefined) {
+							ptr[key] = [ctrl.value];
+						} else {
+							ptr[key].push(ctrl.value);
+						}
 					}
 				} else {
-					ptr[key] = ctrl.value;
+					if (ctrl.type === 'radio' && !ctrl.checked) {
+						return;
+					} else if (ctrl.dataset[KEY_SYNTHETIC_CONTROL]) {
+						const sid = ctrl.dataset[KEY_SYNTHETIC_CONTROL];
+						const val = context.getSyntheticControlValue(sid);
+						console.log({
+							KEY_SIMULATED_CONTROL: KEY_SYNTHETIC_CONTROL,
+							sid,
+							val,
+						});
+						if (val) {
+							ptr[val.name] = val.value;
+						}
+					} else {
+						ptr[key] = ctrl.value;
+					}
 				}
-			}
+			});
 		});
-	});
+
+	if (collectSubforms) {
+		for (const subForm of context.getSubForms()) {
+			collectAllInputValues(subForm, context, { dataRef: data });
+		}
+	}
 
 	return data;
 };
@@ -274,6 +291,17 @@ export const computeArrayDiff = (oval: any[], nval: any[]): DiffResults => {
 	return mydiff;
 };
 
+const mergeArrays = (arr1: string[], arr2: string[]) => {
+	const examined: any = {};
+	for (const ele of arr1) {
+		examined[ele] = true;
+	}
+	for (const ele of arr2) {
+		examined[ele] = true;
+	}
+	return Object.keys(examined);
+};
+
 /**
  * Does a deep traverse between two objects to compute changes. Each diff
  * is registered as path.
@@ -288,10 +316,8 @@ export const computeDiff = (
 	const curdiff = diff ?? { hasDiff: false, diffs: {} };
 
 	const examined: Record<string, boolean> = {};
-	const okeys = Object.keys(oval);
-	const nkeys = Object.keys(nval);
 
-	for (const okey of okeys) {
+	for (const okey of mergeArrays(Object.keys(oval), Object.keys(nval))) {
 		examined[okey] = true;
 		const ov = oval[okey];
 		const nv = nval[okey];
@@ -380,6 +406,26 @@ export type DiffResults = {
 };
 
 /**
+ * - `hook-controls`: triggers hooking inputs that may have been hidden previously. payload is `HTMLElement`
+ * - `detect-changes`: re-scans form and may trigger `control-update`. payload is `any`
+ * - `control-update`: emitted when changes are detected. payload is `DiffResults`
+ * - `set-initial-data`: sets new initial state. may trigger `control-update`. payload is `FormData`
+ * - `submit-start`: signals start of submission. payload is `{data: FormData}`
+ * - `submit-end`: signals end of submission. payload is `{data: FormData, response: Response}`
+ * - `reset`: TBD
+ */
+export type EventNames =
+	| 'hook-controls'
+	| 'detect-changes'
+	| 'control-update'
+	| 'set-initial-data'
+	| 'reset'
+	| 'submit-start'
+	| 'submit-end';
+
+export type EventListener = (eventName: EventNames, payload: any) => void;
+
+/**
  * Enables component tree to access the dynamic form to access/manipulate data.
  */
 export type DynamicFormContextProps = {
@@ -387,12 +433,28 @@ export type DynamicFormContextProps = {
 	initialData: FormData;
 	/** Live state of form data. */
 	refData: React.Ref<FormData>;
-	/** A listener for detected changes. */
-	controlUpdated: (diff: DiffResults) => void;
 	/** Register a synthetic control */
 	addSyntheticControl: (getter: SyntheticControlValueGetter) => string;
 	/** Get current value of a synthetic control. */
 	getSyntheticControlValue: (id: string) => SyntheticControlValue | undefined;
+	/**
+	 *
+	 * @param eventName
+	 * @param listener
+	 * @returns Unsubscribe callback.
+	 */
+	listenFor: (eventName: EventNames, listener: EventListener) => () => void;
+	emit: (eventName: EventNames, payload: any) => void;
+	/**
+	 * For situations where a modal or popover that contains form controls is opened,
+	 * the embedded controls are outside the scope of the root form--in order to include
+	 * these, we need a mechanism to register other subForms (i.e. control containers).
+	 * @param ele
+	 * @returns
+	 */
+	addSubForm: (ele: null | HTMLElement) => void;
+	getSubForms: () => HTMLElement[];
+	// todo: add removeSubForm(ele)?
 };
 
 /**
@@ -401,24 +463,41 @@ export type DynamicFormContextProps = {
  * Currently, synthetic control functions are not overrideable.
  */
 export const makeDynFormContext = (
-	p: Partial<
-		Pick<DynamicFormContextProps, 'initialData' | 'controlUpdated'>
-	> = {}
+	p: Partial<Pick<DynamicFormContextProps, 'initialData'>> = {}
 ): DynamicFormContextProps => {
 	const synthetic: Record<string, SyntheticControlValueGetter> = {};
 	let simcount = 0;
 
+	const eventBus = new EventEmitter({});
+	eventBus.setMaxListeners(64);
+
+	const subForms: HTMLElement[] = [];
+	const emit: DynamicFormContextProps['emit'] = (e, p) => {
+		eventBus.emit(e, e, p);
+	};
+
 	return {
 		initialData: {},
 		refData: { current: {} },
-		controlUpdated: () => {},
 		addSyntheticControl: (getter) => {
 			const id = `${new Date().toISOString()}-${simcount++}`;
 			synthetic[id] = getter;
 			return id;
 		},
 		getSyntheticControlValue: (id) => synthetic[id]?.(),
+		listenFor: (e, l) => {
+			eventBus.addListener(e, l);
+			return () => eventBus.removeListener(e, l);
+		},
+		emit,
 		...p,
+		addSubForm: (ele) => {
+			if (ele) {
+				subForms.push(ele);
+				emit('hook-controls', ele);
+			}
+		},
+		getSubForms: () => [...subForms],
 	};
 };
 
@@ -448,32 +527,64 @@ export const DynamicForm = ({
 }: DynamicFormProps) => {
 	const ctx = useContext(DynamicFormContext);
 	const ref = useRef<null | HTMLFormElement>(null);
-	const refData = useRef<FormData>({});
+	const refData = useRef<FormData>(ctx.initialData);
 
 	// even though ctx is created above, dynamicForm is charge of data state, so override context value here
 	ctx.refData = refData;
 
+	const detectChanges = () => {
+		// refData.current is our canonical current state, but UI rendering may omit certain
+		// fields from input control (e.g. id). so, in order to properly diff, we need to
+		// clone refData.current and use that as the starting point for collecting data
+		const data = collectAllInputValues(
+			ref.current as HTMLFormElement,
+			ctx,
+			{ dataRef: cloneObj(refData.current), collectSubforms: true }
+		);
+		const diff = computeDiff(refData.current, data);
+		if (diff.hasDiff) {
+			ctx.emit('control-update', diff);
+			Object.assign(refData.current, data);
+		}
+	};
+
 	const listener: HookControlListener = (ename, ctrl, e) => {
 		if (ename === 'blur') {
-			const data = collectAllInputValues(
-				ref.current as HTMLFormElement,
-				ctx
-			);
-
-			const diff = computeDiff(refData.current, data);
-			if (diff.hasDiff) {
-				ctx.controlUpdated?.(diff);
-				Object.assign(refData.current, data);
-			}
+			detectChanges();
 		}
 	};
 
 	useEffect(() => {
+		hookControlOnHandlers(ref.current, listener);
 		collectAllInputValues(ref.current as HTMLFormElement, ctx, {
 			dataRef: refData.current,
+			collectSubforms: true,
 		});
-		hookControlOnHandlers(ref.current, listener);
-		console.log('ℹ️ refData = ', refData.current);
+
+		const unsubDetect = ctx.listenFor('detect-changes', () => {
+			detectChanges();
+		});
+
+		const unsubSetInitial = ctx.listenFor(
+			'set-initial-data',
+			(e, initial) => {
+				ctx.initialData = { ...initial };
+				ctx.emit('detect-changes', {});
+			}
+		);
+
+		const unsubHook = ctx.listenFor(
+			'hook-controls',
+			(e, ele: HTMLElement) => {
+				hookControlOnHandlers(ele, listener);
+			}
+		);
+
+		return () => {
+			unsubDetect();
+			unsubSetInitial();
+			unsubHook();
+		};
 	});
 
 	return (
@@ -487,8 +598,9 @@ export const DynamicForm = ({
 					ctx
 				);
 				// console.log('submit', data);
-				defaultFormSubmitter(data, props).then((resp) => {
-					return afterSubmission?.(resp, data);
+				ctx.emit('submit-start', data);
+				onSubmit(data, props).then((response) => {
+					ctx.emit('submit-end', { data, response });
 				});
 			}}
 		>
