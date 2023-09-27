@@ -1,5 +1,5 @@
 import EventEmitter from 'events';
-import type { PropsWithChildren } from 'react';
+import type { MutableRefObject, PropsWithChildren } from 'react';
 import React, { createContext, useContext, useEffect, useRef } from 'react';
 
 export type FormData = Record<string, any>;
@@ -159,15 +159,15 @@ export const insertValueByPath = (
 		}
 
 		if (isArray) {
-			const obj = {};
 			if (index !== undefined) {
 				// [index]
-				target[index] = obj;
+				target[index] = target[index] ?? {};
+				ptr = target[index];
 			} else {
 				// []
-				target.push(obj);
+				target.push({});
+				ptr = target[target.length - 1];
 			}
-			ptr = obj;
 		} else {
 			if (key) {
 				if (!target[key]) {
@@ -181,6 +181,13 @@ export const insertValueByPath = (
 	}
 	insertFn?.(ptr);
 	return ptr;
+};
+
+export const getScope = (ele: HTMLElement) => {
+	return (
+		(ele.closest(`[${DATA_SCOPE}]`) as HTMLElement)?.dataset[KEY_SCOPE] ??
+		''
+	);
 };
 
 /**
@@ -198,6 +205,7 @@ export const collectAllInputValues = (
 	context: DynamicFormContextProps,
 	options: { dataRef?: FormData; collectSubforms?: boolean } = {}
 ) => {
+	// console.log('#####');
 	const { dataRef, collectSubforms } = options;
 	const data: FormData = dataRef ?? {};
 	let anonId = 0;
@@ -209,11 +217,7 @@ export const collectAllInputValues = (
 			const ctrl = ele as HTMLInputElement;
 
 			const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
-			// let path = '';
-			const path =
-				(ctrl.closest(`[${DATA_SCOPE}]`) as HTMLElement)?.dataset[
-					KEY_SCOPE
-				] ?? '';
+			const path = getScope(ctrl);
 
 			insertValueByPath(data, path, (ptr: any) => {
 				if (isMultiple(ctrl)) {
@@ -406,12 +410,12 @@ export type DiffResults = {
 };
 
 /**
- * - `hook-controls`: triggers hooking inputs that may have been hidden previously. payload is `HTMLElement`
- * - `detect-changes`: re-scans form and may trigger `control-update`. payload is `any`
- * - `control-update`: emitted when changes are detected. payload is `DiffResults`
- * - `set-initial-data`: sets new initial state. may trigger `control-update`. payload is `FormData`
- * - `submit-start`: signals start of submission. payload is `{data: FormData}`
- * - `submit-end`: signals end of submission. payload is `{data: FormData, response: Response}`
+ * - `hook-controls`: triggers hooking inputs that may have been hidden previously. args are `HTMLElement`
+ * - `detect-changes`: re-scans form and may trigger `control-update`. args are `any`
+ * - `control-update`: emitted when changes are detected. args are `{diff:DiffResults, scope:string}`
+ * - `set-initial-data`: sets new initial state. may trigger `control-update`. args are `data:FormData`
+ * - `submit-start`: signals start of submission. args are `{data: FormData}`
+ * - `submit-end`: signals end of submission. args are `{data: FormData, response: Response}`
  * - `reset`: TBD
  */
 export type EventNames =
@@ -429,10 +433,12 @@ export type EventListener = (eventName: EventNames, payload: any) => void;
  * Enables component tree to access the dynamic form to access/manipulate data.
  */
 export type DynamicFormContextProps = {
-	/** Reset state of form data. */
+	/** Clean data state. */
 	initialData: FormData;
-	/** Live state of form data. */
-	refData: React.Ref<FormData>;
+	/** Current data state. */
+	curDataRef: React.MutableRefObject<FormData>;
+	setInitialData: (data: FormData, atPath?: string) => void;
+	setCurrentData: (data: FormData, atPath?: string) => void;
 	/** Register a synthetic control */
 	addSyntheticControl: (getter: SyntheticControlValueGetter) => string;
 	/** Get current value of a synthetic control. */
@@ -455,6 +461,8 @@ export type DynamicFormContextProps = {
 	addSubForm: (ele: null | HTMLElement) => void;
 	getSubForms: () => HTMLElement[];
 	// todo: add removeSubForm(ele)?
+
+	onSubmit: DynamicFormSubmitter;
 };
 
 /**
@@ -463,22 +471,46 @@ export type DynamicFormContextProps = {
  * Currently, synthetic control functions are not overrideable.
  */
 export const makeDynFormContext = (
-	p: Partial<Pick<DynamicFormContextProps, 'initialData'>> = {}
+	p: Partial<Pick<DynamicFormContextProps, 'initialData' | 'onSubmit'>> = {}
 ): DynamicFormContextProps => {
 	const synthetic: Record<string, SyntheticControlValueGetter> = {};
+	const initialData = p.initialData ?? {};
+	const curDataRef: MutableRefObject<FormData> = {
+		current: cloneObj(initialData),
+	};
+
 	let simcount = 0;
 
 	const eventBus = new EventEmitter({});
 	eventBus.setMaxListeners(64);
 
 	const subForms: HTMLElement[] = [];
-	const emit: DynamicFormContextProps['emit'] = (e, p) => {
-		eventBus.emit(e, e, p);
+	const emit: DynamicFormContextProps['emit'] = (ename, payload) => {
+		eventBus.emit(ename, ename, payload);
 	};
 
 	return {
-		initialData: {},
-		refData: { current: {} },
+		initialData,
+		curDataRef,
+		setInitialData: (data, atPath) => {
+			if (atPath) {
+				insertValueByPath(initialData, atPath, (ptr) => {
+					Object.assign(ptr, data);
+				});
+			} else {
+				Object.assign(initialData, data);
+			}
+		},
+		setCurrentData: (data, atPath) => {
+			if (atPath) {
+				insertValueByPath(curDataRef.current, atPath, (ptr) => {
+					Object.assign(ptr, data);
+				});
+			} else {
+				Object.assign(curDataRef.current, data);
+			}
+		},
+		onSubmit: defaultFormSubmitter,
 		addSyntheticControl: (getter) => {
 			const id = `${new Date().toISOString()}-${simcount++}`;
 			synthetic[id] = getter;
@@ -507,7 +539,7 @@ export type DynamicFormProps = {
 	action?: string;
 	method?: string;
 	encType?: string;
-	onSubmit?: DynamicFormSubmitter;
+	// onSubmit?: DynamicFormSubmitter;
 	afterSubmission?: (response: Response, data: FormData) => Promise<any>;
 } & PropsWithChildren;
 
@@ -521,43 +553,42 @@ export type DynamicFormProps = {
  */
 export const DynamicForm = ({
 	children,
-	onSubmit = defaultFormSubmitter,
 	afterSubmission,
 	...props
 }: DynamicFormProps) => {
 	const ctx = useContext(DynamicFormContext);
 	const ref = useRef<null | HTMLFormElement>(null);
-	const refData = useRef<FormData>(ctx.initialData);
+	const curDataRef = useRef<FormData>(ctx.initialData);
 
 	// even though ctx is created above, dynamicForm is charge of data state, so override context value here
-	ctx.refData = refData;
+	ctx.curDataRef.current = curDataRef.current;
 
-	const detectChanges = () => {
-		// refData.current is our canonical current state, but UI rendering may omit certain
+	const detectChanges = (scope = '') => {
+		// curDataRef.current is our canonical current state, but UI rendering may omit certain
 		// fields from input control (e.g. id). so, in order to properly diff, we need to
-		// clone refData.current and use that as the starting point for collecting data
+		// clone curDataRef.current and use that as the starting point for collecting data
 		const data = collectAllInputValues(
 			ref.current as HTMLFormElement,
 			ctx,
-			{ dataRef: cloneObj(refData.current), collectSubforms: true }
+			{ dataRef: cloneObj(curDataRef.current), collectSubforms: true }
 		);
-		const diff = computeDiff(refData.current, data);
+		const diff = computeDiff(curDataRef.current, data);
 		if (diff.hasDiff) {
-			ctx.emit('control-update', diff);
-			Object.assign(refData.current, data);
+			Object.assign(curDataRef.current, data);
+			ctx.emit('control-update', { diff, scope });
 		}
 	};
 
 	const listener: HookControlListener = (ename, ctrl, e) => {
 		if (ename === 'blur') {
-			detectChanges();
+			detectChanges(getScope(ctrl));
 		}
 	};
 
 	useEffect(() => {
 		hookControlOnHandlers(ref.current, listener);
 		collectAllInputValues(ref.current as HTMLFormElement, ctx, {
-			dataRef: refData.current,
+			dataRef: curDataRef.current,
 			collectSubforms: true,
 		});
 
@@ -599,7 +630,7 @@ export const DynamicForm = ({
 				);
 				// console.log('submit', data);
 				ctx.emit('submit-start', data);
-				onSubmit(data, props).then((response) => {
+				ctx.onSubmit(data, props).then((response) => {
 					ctx.emit('submit-end', { data, response });
 				});
 			}}
