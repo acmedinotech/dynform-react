@@ -4,8 +4,8 @@
     "access": "public"
   },
   "private": false,
-  "version": "0.0.7",
-  "description": "managed stateful, nested form data with ease and efficiency",
+  "version": "0.1.0",
+  "description": "easy-to-use library for constructing complex data structures from plain old html form controls and data annotations",
   "author": "kaiser shahid <kaisershahid@gmail.com>",
   "license": "MIT",
   "dependencies": {
@@ -27,6 +27,7 @@
     ]
   },
   "scripts": {
+    "start": "npx next",
     "test": "npx jest",
     "pack": "npm pack",
     "release:validate": "yarn test && npx webpack --mode production && echo '✅ release ready to go' && echo git sha: `git rev-parse HEAD` && echo '> tag/publish with: yarn release'",
@@ -44,6 +45,7 @@
     "@testing-library/user-event": "^14.4.3",
     "@types/jest": "^29.5.1",
     "@types/jsdom": "^21.1.1",
+    "@types/next": "^9.0.0",
     "@types/node": "^18.16.3",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.1",
@@ -53,6 +55,7 @@
     "jest": "^29.5.0",
     "jest-environment-jsdom": "^29.5.0",
     "jsdom": "^21.1.1",
+    "next": "^13.4.19",
     "react-test-renderer": "^18.2.0",
     "ts-jest": "^29.1.0",
     "ts-loader": "^9.4.2",
