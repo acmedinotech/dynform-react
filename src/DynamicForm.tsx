@@ -15,6 +15,8 @@ export const DATA_SYNTHETIC_CONTROL = 'data-dfr-synthetic-control';
 export const KEY_SYNTHETIC_CONTROL = 'dfrSyntheticControl';
 export const DATA_SCOPE = 'data-dfr-scope';
 export const KEY_SCOPE = 'dfrScope';
+export const DATA_IGNORE = 'data-dfr-ignore';
+export const KEY_IGNORE = 'dfrIgnore';
 
 export const isMultiple = (ctrl: any) => {
 	return !!ctrl.multiple || ctrl.type == 'checkbox';
@@ -25,7 +27,7 @@ export const cloneObj = (obj: any) => JSON.parse(JSON.stringify(obj));
 export type HookControlListener = (
 	evetName: string,
 	ctrl: HTMLElement,
-	e: FocusEvent
+	e: UIEvent
 ) => void;
 
 /**
@@ -39,13 +41,14 @@ export type HookControlListener = (
  */
 export const hookControlOnHandlers = (
 	form: null | HTMLElement,
+	formId: number,
 	listener: HookControlListener
-) => {
+): (undefined | (() => void))[] => {
 	if (!form) {
-		return;
+		return [];
 	}
 
-	// todo: on a hot refresh, previous onblur is also invoked
+	const unsubs: (undefined | (() => void))[] = [];
 	form.querySelectorAll(
 		'input, textarea, select, [' + DATA_SYNTHETIC_CONTROL + ']'
 	).forEach((ele) => {
@@ -55,18 +58,31 @@ export const hookControlOnHandlers = (
 			ctrl.type === 'button' ||
 			ctrl.type === 'hidden'
 		) {
-			return;
-		} else if (ctrl.dataset['dfrHook']) {
-			return;
+			return undefined;
 		}
 
-		ctrl.dataset['dfrHook'] = '1';
-		const oldBlur = ctrl.onblur;
-		ctrl.onblur = (e) => {
-			oldBlur?.call(ctrl, e);
+		const rec = {
+			dfrHook: ctrl.dataset['dfrHook'],
+			formId,
+			ctrlName: ctrl.name,
+		};
+		// console.log('? hookControlOnHandlers', rec);
+		if (`${formId}` === ctrl.dataset['dfrHook']) {
+			return undefined;
+		}
+
+		ctrl.dataset['dfrHook'] = `${formId}`;
+		const evtListener = (e: UIEvent) => {
+			// console.log('# blur', rec);
 			listener('blur', ctrl, e);
 		};
+		ctrl.addEventListener('blur', evtListener);
+		unsubs.push(() => {
+			// console.log('< hookControlOnHandlers.unlisten', rec);
+			ctrl.removeEventListener('blur', evtListener);
+		});
 	});
+	return unsubs;
 };
 
 /**
@@ -132,7 +148,7 @@ export const insertValueByPath = (
 ): FormData => {
 	let ptr = data;
 	for (const component of path.split('/')) {
-		if (component === '') {
+		if (component === '' || component === '.') {
 			break;
 		}
 
@@ -205,7 +221,6 @@ export const collectAllInputValues = (
 	context: DynamicFormContextProps,
 	options: { dataRef?: FormData; collectSubforms?: boolean } = {}
 ) => {
-	// console.log('#####');
 	const { dataRef, collectSubforms } = options;
 	const data: FormData = dataRef ?? {};
 	let anonId = 0;
@@ -215,6 +230,9 @@ export const collectAllInputValues = (
 		)
 		.forEach((ele) => {
 			const ctrl = ele as HTMLInputElement;
+			if (ctrl.dataset[KEY_IGNORE] !== undefined) {
+				return;
+			}
 
 			const key = ctrl.name || `anonymous-${ctrl.type}-${anonId++}`;
 			const path = getScope(ctrl);
@@ -417,8 +435,10 @@ export type DiffResults = {
  * - `submit-start`: signals start of submission. args are `{data: FormData}`
  * - `submit-end`: signals end of submission. args are `{data: FormData, response: Response}`
  * - `reset`: TBD
+ * - `*`: called after any single event to allow catch-all handlers
  */
 export type EventNames =
+	| '*'
 	| 'hook-controls'
 	| 'detect-changes'
 	| 'control-update'
@@ -437,6 +457,7 @@ export type DynamicFormContextProps = {
 	initialData: FormData;
 	/** Current data state. */
 	curDataRef: React.MutableRefObject<FormData>;
+	getId: () => number;
 	setInitialData: (data: FormData, atPath?: string) => void;
 	setCurrentData: (data: FormData, atPath?: string) => void;
 	/** Register a synthetic control */
@@ -458,13 +479,14 @@ export type DynamicFormContextProps = {
 	 * @param ele
 	 * @returns
 	 */
-	addSubForm: (ele: null | HTMLElement) => void;
+	addSubForm: (ele: null | HTMLElement) => () => void;
 	getSubForms: () => HTMLElement[];
 	// todo: add removeSubForm(ele)?
 
 	onSubmit: DynamicFormSubmitter;
 };
 
+let dfcounter = 0;
 /**
  * Generates the default form context.
  *
@@ -473,25 +495,29 @@ export type DynamicFormContextProps = {
 export const makeDynFormContext = (
 	p: Partial<Pick<DynamicFormContextProps, 'initialData' | 'onSubmit'>> = {}
 ): DynamicFormContextProps => {
+	const fid = dfcounter++;
+	let simcount = 0;
 	const synthetic: Record<string, SyntheticControlValueGetter> = {};
-	const initialData = p.initialData ?? {};
+	const initialData = p.initialData ?? { now: fid };
 	const curDataRef: MutableRefObject<FormData> = {
 		current: cloneObj(initialData),
 	};
 
-	let simcount = 0;
-
 	const eventBus = new EventEmitter({});
 	eventBus.setMaxListeners(64);
 
-	const subForms: HTMLElement[] = [];
+	let subForms: HTMLElement[] = [];
 	const emit: DynamicFormContextProps['emit'] = (ename, payload) => {
-		eventBus.emit(ename, ename, payload);
+		if (ename !== '*') {
+			eventBus.emit(ename, ename, payload);
+			eventBus.emit('*', ename, payload);
+		}
 	};
 
 	return {
 		initialData,
 		curDataRef,
+		getId: () => fid,
 		setInitialData: (data, atPath) => {
 			if (atPath) {
 				insertValueByPath(initialData, atPath, (ptr) => {
@@ -528,6 +554,10 @@ export const makeDynFormContext = (
 				subForms.push(ele);
 				emit('hook-controls', ele);
 			}
+
+			return () => {
+				subForms = subForms.filter((f) => f !== ele);
+			};
 		},
 		getSubForms: () => [...subForms],
 	};
@@ -586,7 +616,10 @@ export const DynamicForm = ({
 	};
 
 	useEffect(() => {
-		hookControlOnHandlers(ref.current, listener);
+		const unsubAllHandlers = [
+			...hookControlOnHandlers(ref.current, ctx.getId(), listener),
+		];
+
 		collectAllInputValues(ref.current as HTMLFormElement, ctx, {
 			dataRef: curDataRef.current,
 			collectSubforms: true,
@@ -607,7 +640,9 @@ export const DynamicForm = ({
 		const unsubHook = ctx.listenFor(
 			'hook-controls',
 			(e, ele: HTMLElement) => {
-				hookControlOnHandlers(ele, listener);
+				unsubAllHandlers.push(
+					...hookControlOnHandlers(ele, ctx.getId(), listener)
+				);
 			}
 		);
 
@@ -615,6 +650,9 @@ export const DynamicForm = ({
 			unsubDetect();
 			unsubSetInitial();
 			unsubHook();
+			for (const u of unsubAllHandlers) {
+				u?.();
+			}
 		};
 	});
 
@@ -628,7 +666,7 @@ export const DynamicForm = ({
 					e.target as HTMLFormElement,
 					ctx
 				);
-				// console.log('submit', data);
+
 				ctx.emit('submit-start', data);
 				ctx.onSubmit(data, props).then((response) => {
 					ctx.emit('submit-end', { data, response });
